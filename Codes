@@ -1,0 +1,132 @@
+library(readr)
+library(dplyr)
+library(Hmisc)
+library(tidyverse)
+library(magrittr)
+library(survival)
+library(survMisc)
+library(survminer)
+library(ggpubr)
+library(table1)
+library(ggplot2)
+
+setwd("C:/Users/Roel Jude Bagaforo/Documents/Personal Files/Academic Files/Masters/23-24 Sem 1/SA/Homeworks/Homework 1")
+
+#read data
+data <- read_csv("follic_dfs_cr.csv")
+#check for missing obs
+sapply(data, function(x){sum(is.na(x))})
+str(data)
+
+table(data$hgb) #https://pubmed.ncbi.nlm.nih.gov/21250102/
+table(data$age) 
+
+#label all the categories and make a hemoglobin and age group
+data %<>% mutate(clinstg = factor(clinstg, levels = c(1, 2), labels = c("Stage I", "Stage II")),
+               chemo = factor(chemo, levels = c(0, 1), labels = c("Chemotherapy", "No chemotherapy")),
+               dfstat = factor(dfstat, levels = c(0, 1), labels = c("No event", "Relapse/metastasis/death")),
+               hgb_group = ifelse(hgb < 130, "Low",
+                            ifelse(hgb < 170, "Normal", "High")),
+               age_group = ifelse(age <= 39, "<40", 
+                            ifelse(age <= 59, "40-59", "60+")))
+
+#label the variables
+label(data$age) = "Age at admission"
+label(data$hgb) = "Hemoglobin at admission"
+label(data$clinstg) = "Clinical stage at admission"
+label(data$chemo) = "Use of chemotherapy"
+label(data$dftime) = "Disease-free survival time"
+label(data$dfstat) = "Event indicator for DFS"
+label(data$age_group) = "Age group at admission"
+label(data$hgb_group) = "Hemoglobin level at admission"
+
+#for ggsurvplot, dfstat should be numeric
+data1 <- data
+data1$dfstat <- as.numeric(data1$dfstat)
+
+#survival curves
+df_time <- survfit(Surv(dftime, dfstat) ~ chemo, data=data1, type=c("kaplan-meier"), 
+                   error=c("greenwood"), conf.type=c("log-log"))
+f1_1 <- ggsurvplot(df_time, risk.table = TRUE, censor.shape = "*",
+                   legend.labs = c("No chemotherapy", "Chemotherapy"),
+                   risk.table.col = "strata",
+                   legend.title = "",
+                   palette = "Dark2",
+                   risk.table.y.text = FALSE,
+                   ylab = "Event-free survival time",
+                   xlab = "Years",
+                   conf.int = T)
+f1_1
+
+df_age <- survfit(Surv(dftime, dfstat) ~ age_group, data=data1, type=c("kaplan-meier"), 
+                   error=c("greenwood"), conf.type=c("log-log"))
+f2_1 <- ggsurvplot(df_age, risk.table = TRUE, censor.shape = "*",
+                   legend.labs = c("<40", "40-49", "60+"),
+                   risk.table.col = "strata",
+                   legend.title = "",
+                   palette = "Dark2",
+                   risk.table.y.text = FALSE,
+                   ylab = "Event-free survival time",
+                   xlab = "Years",
+                   conf.int = T) 
+
+df_hgb <- survfit(Surv(dftime, dfstat) ~ hgb_group, data=data1, type=c("kaplan-meier"), 
+                  error=c("greenwood"), conf.type=c("log-log"))
+f2_2 <- ggsurvplot(df_hgb, risk.table = TRUE, censor.shape = "*",
+                   legend.labs = c("Low", "Normal", "High"),
+                   risk.table.col = "strata",
+                   legend.title = "",
+                   palette = "Dark2",
+                   risk.table.y.text = FALSE,
+                   ylab = "Event-free survival time",
+                   xlab = "Years",
+                   conf.int = T) 
+
+df_clinstg <- survfit(Surv(dftime, dfstat) ~ clinstg, data=data1, type=c("kaplan-meier"), 
+                  error=c("greenwood"), conf.type=c("log-log"))
+f2_3 <- ggsurvplot(df_clinstg, risk.table = TRUE, censor.shape = "*",
+                   legend.labs = c("Stage I", "Stage II"),
+                   risk.table.col = "strata",
+                   legend.title = "",
+                   palette = "Dark2",
+                   risk.table.y.text = FALSE,
+                   ylab = "Event-free survival time",
+                   xlab = "Years",
+                   conf.int = T) 
+
+par(mfrow=c(1,3))
+f2_1
+f2_2
+f2_3
+
+#logrank test
+#chemotherapy and clinical stage
+survdiff(Surv(dftime, dfstat) ~ chemo, data=data1)
+survdiff(Surv(dftime, dfstat) ~ clinstg, data=data1)
+
+#logrank test for trend
+#age group and hemoglobin levels
+obs_age <- survdiff(Surv(dftime, dfstat) ~ age_group, data=data1)$obs
+ex_age <- survdiff(Surv(dftime, dfstat) ~ age_group, data=data1)$exp
+var_age <- survdiff(Surv(dftime, dfstat) ~ age_group, data=data1)$var
+a <- c(1,0,-1)
+test_age <- a%*%(obs_age-ex_age)
+stderror_age <- sqrt(t(a)%*%var_age%*%a)
+z_age <- test_age/stderror_age
+pval_age <- 2*pnorm(abs(z_age),lower.tail = F)
+data.frame(test_age,stderror_age,z_age,pval_age)
+
+obs_hgb <- survdiff(Surv(dftime, dfstat) ~ hgb_group, data=data1)$obs
+ex_hgb <- survdiff(Surv(dftime, dfstat) ~ hgb_group, data=data1)$exp
+var_hgb <- survdiff(Surv(dftime, dfstat) ~ hgb_group, data=data1)$var
+test_hgb <- a%*%(obs_hgb-ex_hgb)
+stderror_hgb <- sqrt(t(a)%*%var_hgb%*%a)
+z_hgb <- test_hgb/stderror_hgb
+pval_hgb <- 2*pnorm(abs(z_hgb),lower.tail = F)
+data.frame(test_hgb,stderror_hgb,z_hgb,pval_hgb)
+
+#stratified logrank
+survdiff(Surv(dftime, dfstat) ~ chemo + strata(age_group), data=data1)
+survdiff(Surv(dftime, dfstat) ~ chemo + strata(hgb_group), data=data1)
+survdiff(Surv(dftime, dfstat) ~ chemo + strata(clinstg), data=data1)
+
