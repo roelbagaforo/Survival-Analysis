@@ -21,14 +21,17 @@ str(data)
 table(data$hgb) #https://pubmed.ncbi.nlm.nih.gov/21250102/
 table(data$age) 
 
+quantile(data$age,c(.33, .67)) 
+quantile(data$hgb,c(.33, .67))
+
 #label all the categories and make a hemoglobin and age group
 data %<>% mutate(clinstg = factor(clinstg, levels = c(1, 2), labels = c("Stage I", "Stage II")),
                chemo = factor(chemo, levels = c(0, 1), labels = c("Chemotherapy", "No chemotherapy")),
                dfstat = factor(dfstat, levels = c(0, 1), labels = c("No event", "Relapse/metastasis/death")),
-               hgb_group = ifelse(hgb < 130, "Low",
-                            ifelse(hgb < 170, "Normal", "High")),
-               age_group = ifelse(age <= 39, "<40", 
-                            ifelse(age <= 59, "40-59", "60+")))
+               hgb_group = ifelse(hgb <= 130, "<130",
+                            ifelse(hgb <= 148, "130-148", "148+")),
+               age_group = ifelse(age <= 51, "<51", 
+                            ifelse(age <= 64, "51-64", "64+")))
 
 #label the variables
 label(data$age) = "Age at admission"
