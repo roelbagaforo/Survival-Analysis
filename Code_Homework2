@@ -1,0 +1,117 @@
+#Homework 2
+
+library(readr)
+library(dplyr)
+library(Hmisc)
+library(tidyverse)
+library(magrittr)
+library(survival)
+library(survMisc)
+library(survminer)
+library(ggpubr)
+library(table1)
+library(ggplot2)
+
+setwd("C:/Users/Roel Jude Bagaforo/Documents/Personal Files/Academic Files/Masters/23-24 Sem 1/SA/Homeworks/Homework 2")
+
+#read data
+data <- read_csv("follic_dfs_cr.csv")
+#check for missing obs
+sapply(data, function(x){sum(is.na(x))})
+str(data)
+
+
+table(data$hgb) #https://pubmed.ncbi.nlm.nih.gov/21250102/
+table(data$age,data$dfstat) 
+quantile(data$age, weights=data$dftime, probs = c(0.25, 0.5, 0.75))
+
+#label all the categories and make a hemoglobin and age group
+data %<>% mutate(clinstg = factor(clinstg, levels = c(1, 2), labels = c("Stage I", "Stage II")),
+                 chemo = factor(chemo, levels = c(0, 1), labels = c("No chemotherapy", "Chemotherapy")))
+data$age_group <- as.factor(data$age_group)
+
+#creating age groups with the same events
+sorted_data <- data.frame(stnum=data$stnum, age=data$age, event=data$dfstat)
+sorted_data <- sorted_data[order(-sorted_data$event, sorted_data$age, sorted_data$stnum),]
+num_groups <- 4  # Number of age groups
+event_in_each_group <- sum(sorted_data$event)/num_groups  # Number of events in each group
+age_group <- rep(NA, length(sorted_data$age))
+group_counter <- 1
+event_count <- 0
+
+for (i in 1:length(sorted_data$age)) {
+  if (sorted_data$event[i] == 1 && event_count >= event_in_each_group) {
+    group_counter <- group_counter + 1
+    event_count <- 0
+  }
+  age_group[i] <- group_counter
+  event_count <- event_count + sorted_data$event[i]
+}
+
+sorted_data$age_group <- age_group
+sorted_data <- (sorted_data[c("stnum","age_group")])
+data <- merge(data,sorted_data, by="stnum")
+table(data$age_group,data$dfstat)
+data <- data %>% mutate(strata=ifelse(age_group=="1" & clinstg=="1",1,
+                      ifelse(age_group=="1" & clinstg=="2",2,
+                             ifelse(age_group=="2" & clinstg=="1",3,
+                                    ifelse(age_group=="2" & clinstg=="2",4,
+                                           ifelse(age_group=="3" & clinstg=="1",5,
+                                                  ifelse(age_group=="3" & clinstg=="2",6,
+                                                         ifelse(age_group=="4" & clinstg=="1",7,8))))))))
+
+#label the variables
+label(data$age) = "Age at admission"
+label(data$hgb) = "Hemoglobin at admission"
+label(data$clinstg) = "Clinical stage at admission"
+label(data$chemo) = "Use of chemotherapy"
+label(data$dftime) = "Disease-free survival time"
+label(data$dfstat) = "Event indicator for DFS"
+label(data$age_group) = "Age group at admission"
+label(data$hgb_group) = "Hemoglobin level at admission"
+
+data$dfstat <- as.numeric(data$dfstat)
+
+#functional form of age and hgb
+null_model <- coxph(Surv(dftime,dfstat) ~ 1, data=data)
+nullmodel_mart = resid(null_model,type="martingale")
+par(mfrow=c(1,2))
+plot(data$age,nullmodel_mart,ylab =" Martingale residual", xlab="Age", main="Age")
+lines(lowess(data$age,nullmodel_mart,iter=0,f=0.5), col="red", lwd =2, lty =2)
+plot(data$hgb,nullmodel_mart,ylab =" Martingale residual", xlab="Haemoglobin", main="Haemoglobin")
+lines(lowess(data$hgb,nullmodel_mart,iter=0,f=0.5), col="red", lwd =2, lty =2)
+
+#proportional hazards assumption
+full_model <- coxph(Surv(dftime,dfstat) ~ age + hgb + clinstg + chemo, data=data)
+fullmodel_scho <- cox.zph(full_model, transform = "identity")
+# Plot
+par( mfrow = c(2, 2))
+for (i in seq (4) ) {
+  plot (fullmodel_scho, df =3, nsmo =40 , se=TRUE , col = " red", var=i)
+  lab = paste0 (" Schoenfeld univariate test p: ", round(fullmodel_scho[[1]][,3][ i],3))
+  mtext(lab, side=3)
+}
+
+strat_model <- coxph(Surv(dftime,dfstat) ~ hgb + chemo + strata(strata), data=data)
+stratmodel_scho <- cox.zph(strat_model, transform = "identity")
+# Plot
+par( mfrow = c(1, 2))
+for (i in seq (3) ) {
+  plot (stratmodel_scho, df =3, nsmo =40 , se=TRUE , col = " red", var=i)
+  lab = paste0 (" Schoenfeld univariate test p: ", round(stratmodel_scho[[1]][,3][ i],3))
+  mtext(lab, side=3)
+}
+
+
+#goodness of fit
+stratmodel_dev <- residuals(strat_model, type="deviance")
+stratmodel_mart <- residuals(strat_model, type="martingale")
+# Linear combination score ( risk score )
+stratmodel_score <- strat_model$linear.predictors
+par( mfrow = c(1, 2))
+plot(stratmodel_score,stratmodel_dev,ylab = "Deviance residual", xlab = "Risk score")
+lines(lowess(stratmodel_score,stratmodel_dev, iter = 0, f = 0.6) , col = "red",lwd = 2, lty = 2)
+plot(stratmodel_score,stratmodel_dev,ylab = "Deviance residual", xlab = "Risk score")
+lines(lowess(stratmodel_score,stratmodel_mart, iter = 0, f = 0.6) , col = "red",lwd = 2, lty = 2)
+# ---------- Parameter Estimates
+summary(strat_model)
